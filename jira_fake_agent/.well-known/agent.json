@@ -1,0 +1,20 @@
+{
+  "name": "jira_fake_agent",
+  "description": "Agent Jira factice pour démo risques/projets (findRisks, createTicket, getTicketLogs).",
+  "service": {
+    "base_url": "http://127.0.0.1:9002",
+    "openapi_url": "http://127.0.0.1:9002/openapi.json"
+  },
+  "capabilities": { "streaming": false, "webhooks": false },
+  "auth": { "type": "none" },
+  "version": "1.0.0",
+  "skills": [
+    { "name": "findRisks", "input": { "project": "string" } },
+    { "name": "createTicket", "input": {
+        "project": "string", "summary": "string", "description": "string",
+        "assignees": "string[]", "link_blocker": "string?", "simulateFailure": "boolean"
+      }
+    },
+    { "name": "getTicketLogs", "input": { "transactionId": "string" } }
+  ]
+}

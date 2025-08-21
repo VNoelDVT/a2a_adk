@@ -1,0 +1,14 @@
+{
+  "name": "orchestrator_agent",
+  "description": "Orchestrateur qui route vers jira_fake_agent.",
+  "service": {
+    "base_url": "http://127.0.0.1:9001",
+    "openapi_url": "http://127.0.0.1:9001/openapi.json"
+  },
+  "auth": { "type": "none" },
+  "capabilities": { "streaming": false },
+  "version": "1.0.0",
+  "depends_on": [
+    { "name": "jira_fake_agent", "agent_card": "http://127.0.0.1:9003/.well-known/agent.json" }
+  ]
+}

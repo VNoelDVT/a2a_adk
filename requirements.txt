@@ -1,0 +1,6 @@
+# ADK installé en mode editable depuis 
+-e ./adk-python
+
+# Ce que les agents utilisent 
+requests>=2.31
+tzdata ; platform_system == "Windows"   
