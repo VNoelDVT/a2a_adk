@@ -67,3 +67,11 @@ else:
   __all__.extend([
       'MCPToolset',
   ])
+
+# Ajoute ce re-export pour autoriser "from google.adk.tools import OpenAPITool"
+try:
+    from .openapi_tool import OpenAPITool  # type: ignore
+except Exception:
+    OpenAPITool = None  # fallback si le sous-module n'est pas dispo
+
+__all__ = [*globals().get("__all__", []), "OpenAPITool"]
