@@ -4,3 +4,8 @@
 # Ce que les agents utilisent 
 requests>=2.31
 tzdata ; platform_system == "Windows"   
+
+semantic-kernel>=0.9
+openai>=1.30
+requests>=2.32
+python-dotenv>=1.0
