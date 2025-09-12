@@ -2,7 +2,7 @@
 import os, json, inspect, re
 import unicodedata
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from math import radians, sin, cos, asin, sqrt
 
 from fastapi import FastAPI
@@ -150,11 +150,7 @@ def _call_filter_by_geo_signature_aware(shortlist: List[Dict[str, Any]],
                                         city: Optional[str],
                                         max_km: int):
     """
-    Call agents.geo_filter_agent.filter_by_geo no matter its signature:
-    - def filter_by_geo(payload)
-    - def filter_by_geo(payload, tool_context=None)
-    - def filter_by_geo(shortlist, location, max_km=400)
-    - def filter_by_geo(shortlist, target_city, max_km=400)
+    Call agents.geo_filter_agent.filter_by_geo no matter its signature.
     """
     fn = filter_by_geo
     params = _params(fn)
@@ -238,7 +234,7 @@ def _guess_city_from_record(rec: Dict[str, Any]) -> str:
     return ""
 
 def _geo_filter_local(shortlist: List[Dict[str, Any]], target_city: str, max_km: int) -> List[Dict[str, Any]]:
-    """Fallback geo filter: keep only candidates within max_km of target_city."""
+    """Fallback geo filter: keep only items within max_km of target_city."""
     if not shortlist or not target_city:
         return shortlist
     tname = _norm_city_name(target_city)
@@ -250,7 +246,7 @@ def _geo_filter_local(shortlist: List[Dict[str, Any]], target_city: str, max_km:
     for c in shortlist:
         cname = _norm_city_name(_guess_city_from_record(c))
         if not cname:
-            continue  # conservative: drop unknown-city candidates
+            continue  # conservative: drop unknown-city items
         coord = _FR_CITY_COORDS.get(cname)
         if not coord:
             continue  # conservative: drop unknown coordinates
@@ -307,6 +303,160 @@ def _infer_missing(fields: List[str], context: Dict[str, Any], user_text: str) -
     except Exception:
         return {k: None for k in fields}
 
+# --------------------- intent routing helpers ---------------------
+def _intent_from_detect_output(out: Dict[str, Any]) -> str:
+    """Return 'BU', 'CONSULTANT', or 'OFFER' based on detect_and_normalize output."""
+    if not isinstance(out, dict):
+        return "OFFER"
+    intent = (out.get("intent") or out.get("type") or "").lower()
+    bu_name = out.get("bu_name") or out.get("bu") or out.get("business_unit")
+    if bu_name or intent in {"bu", "business_unit", "bu_report"}:
+        return "BU"
+    if out.get("consultant") or out.get("candidate") or intent in {"consultant_search","candidate_to_missions"}:
+        return "CONSULTANT"
+    return "OFFER"
+
+def _force_intent_from_text(user_text: str) -> Optional[str]:
+    """Heuristic: force CONSULTANT/BU when the detector is unsure."""
+    t = _strip_accents(user_text or "").lower()
+    # consultant-based search cues
+    if ("consultant" in t or "candidate" in t or "profil" in t or "mon profil" in t) and (
+        "mission" in t or "missions" in t or "dispo" in t
+    ):
+        return "CONSULTANT"
+    # BU report cues
+    if re.search(r"\bbu\b|business\s*unit|rapport\s+de\s+sant[eé]", t):
+        return "BU"
+    return None
+
+# --------------------- consultant → missions helpers ---------------------
+def _load_offers_dataset() -> List[Dict[str, Any]]:
+    """Try a few common filenames to load the offers dataset."""
+    candidates = [
+        "data/offersJson",         # as given by you
+        "data/offers.json",
+        "data/offers.jsonl",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    text = f.read().strip()
+                    if text.startswith("["):
+                        return _coerce_list_of_dicts(json.loads(text))
+                    # jsonl fallback
+                    lines = [json.loads(ln) for ln in text.splitlines() if ln.strip()]
+                    return _coerce_list_of_dicts(lines)
+            except Exception:
+                continue
+    return []
+
+_SENIORITY_RANK = {"junior": 1, "mid": 2, "intermediate": 2, "senior": 3, "principal": 4, "lead": 4, "staff": 4}
+
+def _norm_token(s: str) -> str:
+    return _strip_accents((s or "").strip().lower())
+
+def _normalize_skill_set(items: List[str]) -> set:
+    """Lowercase + accent-strip + expand 'cloud' to (aws/gcp/azure)."""
+    out = set()
+    for raw in items or []:
+        t = _norm_token(raw)
+        if not t:
+            continue
+        out.add(t)
+        if t == "cloud":
+            out.update({"aws", "gcp", "azure"})
+    return out
+
+def _seniority_rank(label: Optional[str]) -> int:
+    return _SENIORITY_RANK.get(_norm_token(label or ""), 0)
+
+def _skills_overlap_score(offer: Dict[str, Any], consultant: Dict[str, Any]) -> Tuple[int, int, int]:
+    """Return (must_hits, stack_hits, nice_hits)."""
+    must = _normalize_skill_set(_get(offer, "must") or [])
+    stack = _normalize_skill_set(_get(offer, "stack") or [])
+    nice = _normalize_skill_set(_get(offer, "nice") or [])
+    cskills = _normalize_skill_set((_get(consultant, "skills") or _get(consultant, "stack") or []))
+    return (
+        len(must & cskills),
+        len(stack & cskills),
+        len(nice & cskills),
+    )
+
+def _score_offer_for_consultant(offer: Dict[str, Any], consultant: Dict[str, Any]) -> float:
+    m, s, n = _skills_overlap_score(offer, consultant)
+    # Strong weight for MUST matches, then stack, then nice
+    score = m * 3 + s * 1 + n * 0.5
+
+    # Seniority fit bonus if consultant >= offer seniority
+    if _seniority_rank(consultant.get("grade")) >= _seniority_rank(offer.get("seniority")):
+        score += 1.0
+    return score
+
+def _render_offers_text(consultant: Dict[str, Any], offers: List[Dict[str, Any]]) -> str:
+    header_name = consultant.get("name_masked") or consultant.get("consultant_id") or "Consultant"
+    header_loc  = consultant.get("location") or _get(consultant, "city")
+    header_grade= consultant.get("grade")
+    title = f"Top missions pour {header_name}"
+    subtitle_parts = [p for p in [header_grade, header_loc] if p]
+    if subtitle_parts:
+        title += f" ({', '.join(subtitle_parts)})"
+
+    lines = [title, ""]
+    for o in offers:
+        role = o.get("role") or "Mission"
+        loc  = o.get("location") or "-"
+        budget = o.get("budget_tjm")
+        start  = o.get("start_by") or "-"
+        client = o.get("client_id") or "-"
+        must = ", ".join(o.get("must") or []) or "-"
+        nice = ", ".join(o.get("nice") or []) or "-"
+        lines.append(f"• {role} — {loc} (Client {client}, TJM {budget}€)")
+        lines.append(f"  Démarrage: {start}")
+        lines.append(f"  Must: {must}")
+        lines.append(f"  Nice: {nice}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+def _run_consultant_flow(user_text: str, detect_out: Dict[str, Any]) -> str:
+    """
+    - Load offers dataset (data/offersJson).
+    - Optional geo filter around consultant city (<= GEO_DEFAULT_KM).
+    - Score by skill overlap & seniority fit.
+    - Return top N missions as text.
+    """
+    consultant = (
+        detect_out.get("consultant")
+        or detect_out.get("candidate")
+        or {}
+    )
+    offers = _load_offers_dataset()
+    if not offers:
+        return "Aucune mission disponible dans le référentiel."
+
+    # Optional geo pre-filter by consultant city
+    c_city = consultant.get("location") or consultant.get("city")
+    if c_city:
+        offers = _geo_filter_local(offers, c_city, GEO_DEFAULT_KM)
+
+    # Score & sort
+    scored: List[Tuple[float, Dict[str, Any]]] = []
+    for off in offers:
+        scored.append((_score_offer_for_consultant(off, consultant), off))
+    scored.sort(key=lambda t: t[0], reverse=True)
+
+    # Keep only offers with non-trivial score; if none, keep top few anyway
+    filtered = [o for (sc, o) in scored if sc >= 1.0]
+    if not filtered:
+        filtered = [o for (_, o) in scored[:FINAL_TOP_N]]
+
+    top = filtered[:FINAL_TOP_N] if FINAL_TOP_N > 0 else filtered
+
+    if not top:
+        return "Aucune mission pertinente trouvée pour ce consultant."
+
+    return _render_offers_text(consultant, top)
+
 # -------------------------- main pipeline --------------------------
 def orchestrate_once(user_text: str) -> str:
     print("[PIPE] start")
@@ -320,8 +470,36 @@ def orchestrate_once(user_text: str) -> str:
         print("[STEP] detect_and_normalize ✓")
     except Exception as e:
         print(f"[STEP] detect_and_normalize ⚠ {e}")
+        out1 = {}
         ctx["offer"] = {}
 
+    # ---- route by intent (detector + heuristic override) ----
+    intent = _intent_from_detect_output(out1 or {})
+    forced = _force_intent_from_text(user_text)
+    if forced:
+        intent = forced
+    if intent == "BU":
+        print("[ROUTE] BU health flow")
+        try:
+            bu_name = (out1 or {}).get("bu_name") or (out1 or {}).get("bu") or (out1 or {}).get("business_unit")
+            if not bu_name:
+                inferred = _infer_missing(["bu_name"], {"offer": {}, "vector": {}}, user_text)
+                bu_name = inferred.get("bu_name")
+            if not bu_name:
+                return "Je n'ai pas identifié la BU visée."
+            report = bu_overview(bu_name)
+            view   = bu_health_view(report)
+            if isinstance(view, str): return view
+            if isinstance(view, dict) and view.get("type") == "text": return view.get("text", "")
+            return view.get("text") if isinstance(view, dict) else str(view)
+        except Exception as e:
+            return f"Impossible de générer le rapport BU ({e})."
+
+    if intent == "CONSULTANT":
+        print("[ROUTE] consultant → missions")
+        return _run_consultant_flow(user_text, out1 or {})
+
+    # -------------------- OFFER → CANDIDATES PIPELINE --------------------
     # 2) vectorize
     try:
         out2 = make_offer_vector(ctx["offer"])
@@ -334,21 +512,15 @@ def orchestrate_once(user_text: str) -> str:
         print(f"[STEP] make_offer_vector ⚠ {e}")
         ctx["vector"] = ctx.get("vector") or {}
 
-    # 2b) explicit city override from the user prompt (wins over stale/default)
+    # 2b) explicit city override from the user prompt
     try:
         explicit_city = _canonical_city_from_text(user_text)
         if explicit_city:
             desired = _canon_to_title(explicit_city)
-            # override offer.location
             if _norm_city_name(_get(ctx.get("offer") or {}, "location", "city")) != explicit_city:
-                offer = dict(ctx.get("offer") or {})
-                offer["location"] = desired
-                ctx["offer"] = offer
-            # override vector.location
+                offer = dict(ctx.get("offer") or {}); offer["location"] = desired; ctx["offer"] = offer
             if _norm_city_name(_get(ctx.get("vector") or {}, "location")) != explicit_city:
-                vector = dict(ctx.get("vector") or {})
-                vector["location"] = desired
-                ctx["vector"] = vector
+                vector = dict(ctx.get("vector") or {}); vector["location"] = desired; ctx["vector"] = vector
     except Exception as e:
         print(f"[STEP] explicit city override ⚠ {e}")
 
