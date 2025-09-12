@@ -103,7 +103,7 @@ def match_candidates(vector: Dict[str, Any], top_n: int = 5) -> Dict[str, Any]:
     enriched: List[Dict[str, Any]] = []
     for r in results:
         city = (r.get("city") or loc) or ""
-        distance_km = 5.0 if city.lower() == loc and loc else 300.0
+        distance_km = 5.0 if city.lower() == loc and loc else 800.0
         enriched.append({**r, "distance_km": distance_km})
 
     enriched.sort(key=lambda x: (-x.get("score", 0), x["distance_km"]))
@@ -112,7 +112,7 @@ def match_candidates(vector: Dict[str, Any], top_n: int = 5) -> Dict[str, Any]:
 
 candidate_matcher_agent = Agent(
     name="candidate_matcher_agent",
-    model="gemini-2.0-flash-001",
+    model="gemini-1.5-flash-8b",
     instruction="À partir d'un vecteur d'offre, trouve les meilleurs candidats (Top-N) et calcule une distance approximative.",
     tools=[match_candidates],
 )
