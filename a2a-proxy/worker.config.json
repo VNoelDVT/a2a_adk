@@ -1,8 +1,0 @@
-{
-  "description": {
-    "language": "python",
-    "extensions": [".py"],
-    "defaultExecutablePath": "C:\\Users\\valno\\anaconda3\\envs\\funcs312\\python.exe",
-    "defaultWorkerPath": "worker.py"
-  }
-}

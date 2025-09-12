@@ -1,0 +1,8 @@
+[
+  { "client_id": "CLI-BNP", "name": "BNP Paribas", "industry": "Finance", "hq_city": "Paris", "sites": ["Paris", "Montreuil"], "preferred_stacks": ["AWS", "Data Platform", "Security"] },
+  { "client_id": "CLI-SG",  "name": "Société Générale", "industry": "Finance", "hq_city": "Paris", "sites": ["Paris", "Val-de-Fontenay"], "preferred_stacks": ["GCP", "Kubernetes", "DataOps"] },
+  { "client_id": "CLI-CARREFOUR", "name": "Carrefour", "industry": "Retail", "hq_city": "Massy", "sites": ["Massy", "Lyon"], "preferred_stacks": ["Azure", "Databricks", "MLOps"] },
+  { "client_id": "CLI-HERMES", "name": "Hermès", "industry": "Luxury", "hq_city": "Paris", "sites": ["Paris"], "preferred_stacks": ["Azure", "Data Analytics"] },
+  { "client_id": "CLI-NAVAL", "name": "Naval Group", "industry": "Defense", "hq_city": "Paris", "sites": ["Brest", "Lorient", "Toulon"], "preferred_stacks": ["Cybersecurity", "OnPrem", "Kubernetes"] },
+  { "client_id": "CLI-STMICRO", "name": "STMicroelectronics", "industry": "Semiconductors", "hq_city": "Grenoble", "sites": ["Grenoble", "Crolles"], "preferred_stacks": ["EDA", "High-Perf Computing", "Data"] }
+]

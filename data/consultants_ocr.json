@@ -1,0 +1,38 @@
+[
+  {
+    "consultant_id": "C-042",
+    "full_name_masked": "Consultant-042",
+    "grade": "Senior",
+    "OCR_fields": { "competnces": ["Py", "AWS", "AirFlow"], "lang": ["FR","EN"], "loc": "Paris", "tjm_min": 680, "avail": {"from":"2025-09-15","load":"80%"}, "yrs_exp": 8 }
+  },
+  {
+    "consultant_id": "C-017",
+    "full_name_masked": "Consultant-017",
+    "grade": "Senior",
+    "OCR_fields": { "skills": ["GCP","Terraform","Kubernetes","GKE"], "languages": ["FR"], "city": "Paris", "min_rate": 720, "availability": {"from":"2025-10-01","load":"100%"}, "exp_years": 10 }
+  },
+  {
+    "consultant_id": "C-073",
+    "full_name_masked": "Consultant-073",
+    "grade": "Mid",
+    "OCR_fields": { "stack": ["Python","Azure","Databricks","CI/CD"], "langues": ["FR"], "base": "Massy", "tjm_floor": 600, "free_from": "2025-09-29", "load_pct": 60 }
+  },
+  {
+    "consultant_id": "C-128",
+    "full_name_masked": "Consultant-128",
+    "grade": "Senior",
+    "OCR_fields": { "skills": ["SQL","PowerBI","Python"], "languages": ["FR","EN"], "city": "Paris", "min_rate": 540, "availability": {"from":"2025-10-05","load":"80%"}, "exp_years": 7 }
+  },
+  {
+    "consultant_id": "C-221",
+    "full_name_masked": "Consultant-221",
+    "grade": "Senior",
+    "OCR_fields": { "skills": ["Kubernetes","Security","Ansible"], "languages": ["FR"], "city": "Brest", "min_rate": 760, "availability": {"from":"2025-09-22","load":"100%"}, "exp_years": 9 }
+  },
+  {
+    "consultant_id": "C-302",
+    "full_name_masked": "Consultant-302",
+    "grade": "Principal",
+    "OCR_fields": { "skills": ["Data Architecture","HPC","Spark"], "languages": ["EN"], "city": "Grenoble", "min_rate": 920, "availability": {"from":"2025-10-13","load":"100%"}, "exp_years": 12 }
+  }
+]
