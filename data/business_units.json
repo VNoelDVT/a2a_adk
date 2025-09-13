@@ -9,8 +9,8 @@
     "open_offers": ["OFF-004"],
     "alerts": { "skills_gap": ["GenAI prototyping","Motion design"], "attrition_risk": "Medium" }
   },
-  "Data & AI": {
-    "headcount_by_grade": { "Junior": 60, "Senior": 90, "Principal": 20, "Manager": 12 },
+  "Innovative Tech": {
+    "headcount_by_grade": { "Junior": 60, "Senior": 90, "Principal": 20, "Manager": 8 },
     "tjm_median_by_role": { "Data Engineer": 720, "ML Engineer": 780, "Data Architect": 1000 },
     "salary_avg_by_grade": { "Junior": 45000, "Senior": 70000, "Principal": 88000, "Manager": 98000 },
     "utilization_pct": 83,
@@ -19,7 +19,7 @@
     "open_offers": ["OFF-001","OFF-003","OFF-006"],
     "alerts": { "skills_gap": ["FinOps","MLOps"], "attrition_risk": "Low" }
   },
-  "ServiceNow": {
+  "NPlatform": {
     "headcount_by_grade": { "Junior": 20, "Senior": 40, "Principal": 8, "Manager": 6 },
     "tjm_median_by_role": { "SN Developer": 700, "SN Architect": 900 },
     "salary_avg_by_grade": { "Junior": 42000, "Senior": 68000, "Principal": 86000, "Manager": 94000 },
@@ -29,8 +29,8 @@
     "open_offers": [],
     "alerts": { "skills_gap": [], "attrition_risk": "Low" }
   },
-  "Cybersecurity": {
-    "headcount_by_grade": { "Junior": 25, "Senior": 50, "Principal": 10, "Manager": 7 },
+  "CyberTrust": {
+    "headcount_by_grade": { "Junior": 35, "Senior": 50, "Principal": 10, "Manager": 7 },
     "tjm_median_by_role": { "Cyber Engineer": 850, "Pentester": 800 },
     "salary_avg_by_grade": { "Junior": 43000, "Senior": 69000, "Principal": 87000, "Manager": 95000 },
     "utilization_pct": 79,

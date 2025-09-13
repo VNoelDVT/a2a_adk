@@ -45,8 +45,8 @@ WEIGHT_GEO          = float(os.getenv("WEIGHT_GEO", "1.2"))
 WEIGHT_TJM          = float(os.getenv("WEIGHT_TJM", "0.8"))
 
 SYSTEM = (
-    "Tu es l’orchestrateur. Suis strictement le pipeline d’outils. "
-    "Ne génère pas de texte libre pour l’utilisateur: le rendu final vient du tool `shortlist_view`."
+    "Tu es l'orchestrateur. Suis strictement le pipeline d'outils. "
+    "Ne génère pas de texte libre pour l'utilisateur: le rendu final vient du tool `shortlist_view`."
 )
 
 # -------------------------- small utils --------------------------
@@ -645,7 +645,7 @@ def _chat_fallback(user_text: str, detect_out: Dict[str, Any]) -> str:
     """Use a general-purpose answer when the intent isn't one of the two flows."""
     system = (
         "Tu es un assistant utile et concis. Réponds dans la langue du message. "
-        "N’affiche JAMAIS de balises <think> ni d’analyse interne. "
+        "N'affiche JAMAIS de balises <think> ni d'analyse interne. "
         "Pas de code fence inutile."
     )
     try:
@@ -711,7 +711,7 @@ def orchestrate_once(user_text: str) -> str:
         print(f"[STEP] make_offer_vector ⚠ {e}")
         ctx["vector"] = ctx.get("vector") or {}
 
-    # explicit city override from the prompt (e.g., “Massy”, “Lyon”, …)
+    # explicit city override from the prompt (e.g., "Massy", "Lyon", …)
     try:
         explicit_city = _canonical_city_from_text(user_text)
         if explicit_city:
@@ -810,7 +810,7 @@ def orchestrate_once(user_text: str) -> str:
         return final.get("text") if isinstance(final, dict) else str(final)
     except Exception as e:
         print(f"[VIEW] shortlist_view ⚠ {e}")
-        return "Aucun résultat exploitable pour l’instant."
+        return "Aucun résultat exploitable pour l'instant."
 
 # -------------------------- FastAPI app --------------------------
 class ChatIn(BaseModel):
@@ -829,156 +829,1235 @@ def chat(body: ChatIn):
     except Exception as e:
         return ChatOut(text=f"(Erreur orchestrateur: {type(e).__name__}: {e})")
 
-# -------------------------- Minimal, pretty UI --------------------------
+@app.get("/bu-data")
+def get_bu_data():
+    """Return current BU data from the JSON file"""
+    print("[BU-DATA] GET /bu-data endpoint called")
+    
+    try:
+        # Debug: Show what paths we're checking
+        candidates = []
+        if BU_DATA_PATH:
+            candidates.append(BU_DATA_PATH)
+            print(f"[BU-DATA] Checking BU_DATA_PATH: {BU_DATA_PATH}")
+        
+        default_paths = [
+            os.path.join(APP_ROOT, "data", "business_units.json"),
+            os.path.join(APP_ROOT, "data", "business_units"),
+            os.path.join(APP_ROOT, "data", "business_units.jsonl"),
+            "data/business_units.json",
+            "data/business_units",
+            "data/business_units.jsonl",
+        ]
+        candidates.extend(default_paths)
+        
+        print(f"[BU-DATA] APP_ROOT is: {APP_ROOT}")
+        print(f"[BU-DATA] Current working directory: {os.getcwd()}")
+        print(f"[BU-DATA] Will check these paths in order:")
+        for i, path in enumerate(candidates, 1):
+            exists = os.path.exists(path)
+            print(f"[BU-DATA]   {i}. {path} - {'EXISTS' if exists else 'NOT FOUND'}")
+        
+        dataset = _load_bu_dataset()
+        if not dataset:
+            print("[BU-DATA] _load_bu_dataset returned empty - using fallback data")
+            # Return your hardcoded fallback data here
+            return {
+                "Creative Tech": {
+                    "headcount_by_grade": { "Junior": 35, "Senior": 55, "Principal": 12, "Manager": 8 },
+                    # ... rest of your data
+                }
+            }
+        
+        print(f"[BU-DATA] Successfully loaded {len(dataset)} business units from file")
+        return dataset
+        
+    except Exception as e:
+        error_msg = f"Could not load BU data: {type(e).__name__}: {e}"
+        print(f"[BU-DATA] ERROR: {error_msg}")
+        return {"error": error_msg}
+
+# -------------------------- Enhanced UI with Gemini-inspired Design --------------------------
 _UI_HTML = """
 <!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Orchestrateur</title>
+  <title>Devoteam HR Dashboard</title>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.min.js"></script>
   <style>
     :root {
-      --bg:#0b1020; --card:#111a33; --ink:#e9eefc; --muted:#98a3c7;
-      --accent:#5b8cff; --accent-2:#7dd3fc; --ring:#2640a4;
-      --ok:#3ddc97; --warn:#ffd166; --err:#ef476f;
-      --radius:14px; --shadow: 0 10px 30px rgba(0,0,0,.25);
+      /* Gemini-inspired color palette */
+      --primary: #1a73e8;
+      --primary-dark: #1557b0;
+      --primary-light: #4285f4;
+      --secondary: #34a853;
+      --accent: #ea4335;
+      --warning: #fbbc04;
+      --purple: #9334e4;
+      --teal: #0d9488;
+      
+      /* Backgrounds & surfaces */
+      --bg-primary: #0f1419;
+      --bg-secondary: #1a1f2e;
+      --bg-tertiary: #252b3a;
+      --surface: rgba(255, 255, 255, 0.05);
+      --surface-hover: rgba(255, 255, 255, 0.08);
+      
+      /* Text colors */
+      --text-primary: #ffffff;
+      --text-secondary: rgba(255, 255, 255, 0.7);
+      --text-muted: rgba(255, 255, 255, 0.5);
+      
+      /* Borders & shadows */
+      --border: rgba(255, 255, 255, 0.1);
+      --border-hover: rgba(255, 255, 255, 0.2);
+      --shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.4);
+      
+      --radius: 12px;
+      --radius-lg: 16px;
+      --sidebar-width: 320px;
     }
+
     * { box-sizing: border-box; }
-    html,body { height:100%; }
+    html, body { height: 100%; margin: 0; }
+    
     body {
-      margin:0; font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial;
-      color:var(--ink); background: radial-gradient(1200px 800px at 15% -10%, #1a2650 0%, transparent 60%),
-                         radial-gradient(1200px 800px at 85% -10%, #0f1b44 0%, transparent 60%),
-                         var(--bg);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #0f1419 0%, #1a1f2e 100%);
+      color: var(--text-primary);
+      overflow-x: hidden;
     }
-    .wrap { max-width:1100px; margin:40px auto; padding:0 20px; }
-    h1 { font-size:28px; letter-spacing:.3px; margin:0 0 18px; }
-    .chips { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px; }
-    .chip { padding:8px 12px; border:1px solid #2a3765; color:var(--ink);
-            background:rgba(255,255,255,.03); border-radius:999px; cursor:pointer; user-select:none; }
-    .chip:hover { border-color:var(--accent); box-shadow:0 0 0 3px rgba(91,140,255,.2) inset; }
 
-    .grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:18px; }
-    @media (max-width: 980px) { .grid { grid-template-columns:1fr; } }
+    /* Sidebar */
+    .sidebar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: var(--sidebar-width);
+      height: 100vh;
+      background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+      border-right: 1px solid var(--border);
+      transform: translateX(-100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 1000;
+      overflow-y: auto;
+    }
 
-    .card { background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
-            border:1px solid #223061; border-radius:var(--radius); padding:16px; box-shadow:var(--shadow); }
-    .card h2 { font-size:18px; margin:4px 0 12px; }
-    .hint { color:var(--muted); font-size:12px; margin-top:6px; }
+    .sidebar.open {
+      transform: translateX(0);
+    }
+
+    .sidebar-header {
+      padding: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .sidebar-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 0 0 8px;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .sidebar-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    .conversation-history {
+      padding: 16px;
+    }
+
+    .history-item {
+      padding: 12px;
+      margin-bottom: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .history-item:hover {
+      background: var(--surface-hover);
+      border-color: var(--border-hover);
+      transform: translateY(-1px);
+    }
+
+    .history-item-title {
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 4px;
+      color: var(--text-primary);
+    }
+
+    .history-item-preview {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .history-item-time {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+
+    /* Sidebar footer */
+    .sidebar-footer {
+      position: sticky;
+      bottom: 0;
+      background: linear-gradient(180deg, transparent 0%, var(--bg-tertiary) 30%);
+      padding: 20px 16px;
+      border-top: 1px solid var(--border);
+      margin-top: auto;
+    }
+
+    .powered-by {
+      text-align: center;
+    }
+
+    .powered-by-text {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .logos-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .logo-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .logo-item:hover {
+      background: var(--surface-hover);
+      border-color: var(--border-hover);
+      transform: translateY(-1px);
+    }
+
+    .nvidia-logo {
+      width: 32px;
+      height: 10px;
+    }
+
+    .llama-logo {
+      width: 16px;
+      height: 16px;
+    }
+
+    .logo-text {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .logo-separator {
+      font-size: 10px;
+      color: var(--text-muted);
+      opacity: 0.5;
+    }
+
+    /* Main content */
+    .main {
+      margin-left: 0;
+      transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      min-height: 100vh;
+    }
+
+    .main.sidebar-open {
+      margin-left: var(--sidebar-width);
+    }
+
+    .header {
+      padding: 20px 24px;
+      background: rgba(255, 255, 255, 0.02);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(20px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .header-content {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .menu-button {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      color: var(--text-primary);
+    }
+
+    .menu-button:hover {
+      background: var(--surface-hover);
+      border-color: var(--border-hover);
+    }
+
+    .app-title {
+      font-size: 24px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    /* Action cards */
+    .action-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+      margin-bottom: 32px;
+    }
+
+    .action-card {
+      background: linear-gradient(135deg, var(--surface) 0%, rgba(255, 255, 255, 0.02) 100%);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .action-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 50%, var(--accent) 100%);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .action-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-lg);
+      border-color: var(--border-hover);
+    }
+
+    .action-card:hover::before {
+      opacity: 1;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .card-icon {
+      width: 24px;
+      height: 24px;
+      opacity: 0.8;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0;
+      color: var(--text-primary);
+    }
+
+    .card-badge {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      color: white;
+      font-size: 10px;
+      font-weight: 500;
+      padding: 4px 8px;
+      border-radius: 12px;
+      margin-left: auto;
+    }
 
     textarea {
-      width:100%; height:120px; resize:vertical;
-      color:var(--ink); background:#0d1329; border:1px solid #283770;
-      border-radius:12px; padding:12px 14px; outline:none;
+      width: 100%;
+      height: 100px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 14px;
+      resize: vertical;
+      transition: all 0.2s ease;
     }
-    textarea:focus { border-color:var(--accent); box-shadow:0 0 0 4px rgba(91,140,255,.2); }
 
-    .row { display:flex; gap:10px; align-items:center; margin-top:10px; }
-    button {
-      padding:10px 14px; border-radius:12px; border:1px solid #2a3765;
-      background:linear-gradient(180deg, #1a2a63, #14204d); color:var(--ink); cursor:pointer;
+    textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.1);
     }
-    button:hover { border-color:var(--accent); box-shadow:0 0 0 4px rgba(91,140,255,.2); }
 
-    .resp {
-      white-space:pre-wrap; background:#0b1126; border:1px solid #283770;
-      border-radius:14px; padding:16px; margin-top:16px; min-height:90px;
+    textarea::placeholder {
+      color: var(--text-muted);
     }
-    .muted { color:var(--muted); }
-    .badge { font-size:11px; padding:3px 8px; border-radius:999px; border:1px solid #2a3765; color:#cfe2ff; }
 
-    .footer { margin-top:28px; color:#9fb1ff; font-size:12px; opacity:.8; }
+    .button-row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-top: 16px;
+    }
+
+    .btn {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      color: white;
+      border: none;
+      border-radius: var(--radius);
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+      transition: left 0.5s;
+    }
+
+    .btn:hover::before {
+      left: 100%;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(26, 115, 232, 0.3);
+    }
+
+    .btn-secondary {
+      background: var(--surface);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      background: var(--surface-hover);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .status {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-left: auto;
+    }
+
+    /* BU Health Section */
+    .bu-health-section {
+      background: linear-gradient(135deg, var(--surface) 0%, rgba(255, 255, 255, 0.02) 100%);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      margin-bottom: 32px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .bu-health-section::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--secondary) 0%, var(--teal) 50%, var(--purple) 100%);
+    }
+
+    .section-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin: 0 0 20px;
+      background: linear-gradient(135deg, var(--secondary) 0%, var(--teal) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .bu-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin-top: 20px;
+    }
+
+    .bu-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .bu-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow);
+      border-color: var(--border-hover);
+    }
+
+    .bu-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .bu-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .health-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    .health-good { background: var(--secondary); }
+    .health-warning { background: var(--warning); }
+    .health-critical { background: var(--accent); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .pyramid-container {
+      height: 150px;
+      margin: 16px 0;
+    }
+
+    .metrics-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 12px;
+    }
+
+    .metric {
+      text-align: center;
+    }
+
+    .metric-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .metric-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Response area */
+    .response-section {
+      background: linear-gradient(135deg, var(--surface) 0%, rgba(255, 255, 255, 0.02) 100%);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+    }
+
+    .response-content {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      min-height: 120px;
+      white-space: pre-wrap;
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+    }
+
+    .response-content.has-content {
+      color: var(--text-primary);
+    }
+
+    /* Loading animation */
+    .loading {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--primary);
+    }
+
+    .loading::after {
+      content: '';
+      width: 16px;
+      height: 16px;
+      border: 2px solid transparent;
+      border-top: 2px solid currentColor;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Responsive design */
+    @media (max-width: 768px) {
+      .container {
+        padding: 16px;
+      }
+      
+      .action-grid {
+        grid-template-columns: 1fr;
+      }
+      
+      .bu-grid {
+        grid-template-columns: 1fr;
+      }
+      
+      .sidebar {
+        width: 280px;
+      }
+      
+      :root {
+        --sidebar-width: 280px;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>Orchestrateur</h1>
-    <div class="chips">
-      <div class="chip" onclick="preset('offer')">Mission → Candidats</div>
-      <div class="chip" onclick="preset('consultant')">Consultant → Missions</div>
-      <div class="chip" onclick="preset('free')">Chat libre</div>
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h2 class="sidebar-title">Historique</h2>
+      <p class="sidebar-subtitle">Conversations récentes</p>
     </div>
+    <div class="conversation-history" id="conversationHistory">
+      <!-- History items will be populated here -->
+    </div>
+  </div>
 
-    <div class="grid">
-      <div class="card">
-        <h2>Mission → Candidats <span class="badge">Use case #1</span></h2>
-        <textarea id="ta-offer" placeholder="Ex: J’ai une mission Data Engineer à Lyon qui commence en octobre, qui est dispo ?"></textarea>
-        <div class="row">
-          <button onclick="send('ta-offer')">Envoyer</button>
-          <span id="st-offer" class="hint muted"></span>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Consultant → Missions <span class="badge">Use case #2</span></h2>
-        <textarea id="ta-consultant" placeholder="Ex: J’ai un consultant senior Python/Cloud basé à Paris, quelles missions sont dispo ?"></textarea>
-        <div class="row">
-          <button onclick="send('ta-consultant')">Envoyer</button>
-          <span id="st-consultant" class="hint muted"></span>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Chat libre <span class="badge">Fallback assistant</span></h2>
-        <textarea id="ta-free" placeholder="Posez n’importe quelle question… (si ce n’est pas l’un des 2 cas d’usage, l’assistant répond normalement)"></textarea>
-        <div class="row">
-          <button onclick="send('ta-free')">Envoyer</button>
-          <span id="st-free" class="hint muted"></span>
-        </div>
-        <div class="hint">Astuce : collez vos prompts longs ici. L’agent détecte automatiquement le meilleur traitement.</div>
+  <!-- Main content -->
+  <div class="main" id="main">
+    <!-- Header -->
+    <div class="header">
+      <div class="header-content">
+        <button class="menu-button" onclick="toggleSidebar()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+        </button>
+        <h1 class="app-title">Devoteam HR Dashboard</h1>
       </div>
     </div>
 
-    <div class="card" style="margin-top:18px;">
-      <h2>Réponse</h2>
-      <div id="out" class="resp muted">La réponse apparaîtra ici…</div>
-    </div>
+    <div class="container">
+      <!-- Action Cards -->
+      <div class="action-grid">
+        <div class="action-card">
+          <div class="card-header">
+            <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+            <h3 class="card-title">Mission → Candidats</h3>
+            <span class="card-badge">Use case #1</span>
+          </div>
+          <textarea id="ta-offer" placeholder="Ex: J'ai une mission Data Engineer à Lyon qui commence en octobre, qui est dispo ?"></textarea>
+          <div class="button-row">
+            <button class="btn" onclick="send('ta-offer')">Envoyer</button>
+            <span id="st-offer" class="status"></span>
+          </div>
+        </div>
 
-    <div class="footer">POST <code>/chat</code> · JSON { "input": "…" } — L’interface détecte l’intention et route vers le bon flux. Hors cas d’usage, elle agit comme un chatbot.</div>
+        <div class="action-card">
+          <div class="card-header">
+            <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            <h3 class="card-title">Consultant → Missions</h3>
+            <span class="card-badge">Use case #2</span>
+          </div>
+          <textarea id="ta-consultant" placeholder="Ex: J'ai un consultant senior Python/Cloud basé à Paris, quelles missions sont dispo ?"></textarea>
+          <div class="button-row">
+            <button class="btn" onclick="send('ta-consultant')">Envoyer</button>
+            <span id="st-consultant" class="status"></span>
+          </div>
+        </div>
+
+        <div class="action-card">
+          <div class="card-header">
+            <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <h3 class="card-title">Chat libre</h3>
+            <span class="card-badge">Assistant</span>
+          </div>
+          <textarea id="ta-free" placeholder="Posez n'importe quelle question… L'assistant détecte automatiquement le meilleur traitement."></textarea>
+          <div class="button-row">
+            <button class="btn" onclick="send('ta-free')">Envoyer</button>
+            <span id="st-free" class="status"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- BU Health Section -->
+      <div class="bu-health-section">
+        <h2 class="section-title">BU Health Dashboard</h2>
+        <div class="button-row">
+          <button class="btn btn-secondary" onclick="openBUHealth()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+              <path d="M3 3v18h18"></path>
+              <path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path>
+            </svg>
+            Analyser la santé des BU
+          </button>
+          <button class="btn btn-secondary" onclick="loadBusinessUnitsData()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path>
+            </svg>
+            Actualiser les données
+          </button>
+        </div>
+        <div class="bu-grid" id="buGrid">
+          <!-- BU cards will be populated here -->
+        </div>
+      </div>
+
+      <!-- Response Section -->
+      <div class="response-section">
+        <h2 class="section-title">Réponse</h2>
+        <div id="out" class="response-content">La réponse apparaîtra ici…</div>
+      </div>
+    </div>
   </div>
 
   <script>
-    function preset(kind){
-      const examples = {
-        offer: "J’ai une mission Data Engineer à Lyon qui commence en octobre, qui est dispo ?",
-        consultant: "J’ai un consultant senior Python/Cloud basé à Paris, quelles missions sont dispo ?",
-        free: "Explique-moi le principe de l’indexation vectorielle en 3 phrases."
-      };
-      const ids = {offer:"ta-offer", consultant:"ta-consultant", free:"ta-free"};
-      document.getElementById(ids[kind]).value = examples[kind];
-      document.getElementById(ids[kind]).focus();
+    // Business Units data - will be loaded dynamically from the server
+    let businessUnitsData = {};
+
+    let conversationHistory = JSON.parse(localStorage.getItem('conversationHistory') || '[]');
+    let sidebarOpen = false;
+
+    // Load business units data from the server
+    window.loadBusinessUnitsData = async function() {
+      try {
+        console.log('[BU-UI] Loading business units data from server...');
+        const response = await fetch('/bu-data');
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.error) {
+          console.error('[BU-UI] Server returned error:', data.error);
+          return;
+        }
+        
+        businessUnitsData = data;
+        console.log(`[BU-UI] Successfully loaded ${Object.keys(businessUnitsData).length} business units`);
+        
+        // Clear existing BU cards and create new ones
+        const container = document.getElementById('buGrid');
+        container.innerHTML = '';
+        createBUCards();
+        
+      } catch (error) {
+        console.error('[BU-UI] Failed to load BU data from server:', error);
+      }
     }
 
-    async function send(textareaId){
+    // Initialize UI
+    document.addEventListener('DOMContentLoaded', function() {
+      console.log('[BU-UI] DOM loaded, initializing...');
+      updateConversationHistory();
+      loadBusinessUnitsData(); // Load BU data first, then create cards
+    });
+
+    // Sidebar functions - make global for onclick handlers
+    window.toggleSidebar = function() {
+      sidebarOpen = !sidebarOpen;
+      const sidebar = document.getElementById('sidebar');
+      const main = document.getElementById('main');
+      
+      if (sidebarOpen) {
+        sidebar.classList.add('open');
+        main.classList.add('sidebar-open');
+      } else {
+        sidebar.classList.remove('open');
+        main.classList.remove('sidebar-open');
+      }
+    }
+
+    // Conversation history functions
+    function addToHistory(input, output) {
+      const historyItem = {
+        id: Date.now(),
+        input: input.substring(0, 100),
+        output: output.substring(0, 200),
+        timestamp: new Date().toISOString(),
+        fullInput: input,
+        fullOutput: output
+      };
+      
+      conversationHistory.unshift(historyItem);
+      if (conversationHistory.length > 20) {
+        conversationHistory = conversationHistory.slice(0, 20);
+      }
+      
+      localStorage.setItem('conversationHistory', JSON.stringify(conversationHistory));
+      updateConversationHistory();
+    }
+
+    function updateConversationHistory() {
+      const container = document.getElementById('conversationHistory');
+      
+      if (conversationHistory.length === 0) {
+        container.innerHTML = `
+          <div style="text-align: center; padding: 20px; color: var(--text-muted);">
+            <p>Aucune conversation pour l'instant</p>
+            <p style="font-size: 12px;">Vos échanges apparaîtront ici</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = conversationHistory.map(item => `
+        <div class="history-item" onclick="loadFromHistory('${item.id}')">
+          <div class="history-item-title">${item.input}</div>
+          <div class="history-item-preview">${item.output}</div>
+          <div class="history-item-time">${new Date(item.timestamp).toLocaleString('fr-FR')}</div>
+        </div>
+      `).join('');
+    }
+
+    window.loadFromHistory = function(id) {
+      const item = conversationHistory.find(h => h.id == id);
+      if (item) {
+        document.getElementById('out').textContent = item.fullOutput;
+        document.getElementById('out').classList.add('has-content');
+      }
+    }
+
+    // BU Health functions
+    function createBUCards() {
+  const container = document.getElementById('buGrid');
+  
+  Object.entries(businessUnitsData).forEach(([buName, data]) => {
+    const health = calculateBUHealth(data);
+    const card = createBUCard(buName, data, health);
+    container.appendChild(card);
+  });
+
+  // Draw pyramid charts after cards are created
+  setTimeout(() => {
+    Object.entries(businessUnitsData).forEach(([buName, data]) => {
+      const canvasId = `pyramid-${buName.replace(/\s+/g, '')}`;
+      drawPyramidChart(canvasId, data.headcount_by_grade);
+    });
+  }, 100);
+}
+
+    function calculateBUHealth(data) {
+      const headcount = data.headcount_by_grade;
+      const total = Object.values(headcount).reduce((sum, count) => sum + count, 0);
+      const juniorRatio = headcount.Junior / total;
+      const seniorRatio = (headcount.Senior + headcount.Principal + headcount.Manager) / total;
+      
+      let warnings = [];
+      let healthStatus = 'good';
+      
+      if (juniorRatio < 0.3) {
+        warnings.push("⚠️ Faible ratio de juniors");
+        healthStatus = 'warning';
+      }
+      
+      if (seniorRatio > 0.7) {
+        warnings.push("⚠️ Structure top-heavy");
+        healthStatus = 'warning';
+      }
+      
+      if (data.utilization_pct < 75) {
+        warnings.push("⚠️ Utilisation faible");
+        healthStatus = 'warning';
+      }
+      
+      if (data.bench_pct > 15) {
+        warnings.push("⚠️ Bench élevé");
+        healthStatus = 'critical';
+      }
+      
+      if (data.alerts.attrition_risk === 'Medium' || data.alerts.attrition_risk === 'High') {
+        warnings.push("⚠️ Risque d'attrition");
+        if (data.alerts.attrition_risk === 'High') healthStatus = 'critical';
+      }
+      
+      return { status: healthStatus, warnings, total };
+    }
+
+    function createBUCard(buName, data, health) {
+      const card = document.createElement('div');
+      card.className = 'bu-card';
+      card.onclick = () => showBUDetails(buName, data, health);
+      
+      const headcount = data.headcount_by_grade;
+      
+      card.innerHTML = `
+        <div class="bu-card-header">
+          <div class="bu-name">${buName}</div>
+          <div class="health-indicator health-${health.status}"></div>
+        </div>
+        <div class="pyramid-container">
+          <canvas id="pyramid-${buName.replace(/\s+/g, '')}" width="260" height="140"></canvas>
+        </div>
+        <div class="metrics-row">
+          <div class="metric">
+            <div class="metric-value">${data.utilization_pct}%</div>
+            <div class="metric-label">Utilisation</div>
+          </div>
+          <div class="metric">
+            <div class="metric-value">${data.bench_pct}%</div>
+            <div class="metric-label">Bench</div>
+          </div>
+        </div>
+        ${health.warnings.length > 0 ? `
+          <div style="margin-top: 12px; padding: 8px; background: rgba(251, 188, 4, 0.1); border: 1px solid rgba(251, 188, 4, 0.3); border-radius: 8px; font-size: 11px; color: #ffd166;">
+            ${health.warnings.slice(0, 2).join('<br>')}
+          </div>
+        ` : ''}
+      `;
+      
+      return card;
+    }
+
+    function drawPyramidChart(canvasId, data) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+      
+      ctx.clearRect(0, 0, width, height);
+      
+      const levels = [
+        { name: 'Manager', count: data.Manager, color: '#9334e4' },
+        { name: 'Principal', count: data.Principal, color: '#1a73e8' },
+        { name: 'Senior', count: data.Senior, color: '#34a853' },
+        { name: 'Junior', count: data.Junior, color: '#fbbc04' }
+      ];
+      
+      const total = Object.values(data).reduce((sum, count) => sum + count, 0);
+      const maxCount = Math.max(...Object.values(data));
+      const maxWidth = width * 0.8;
+      const levelHeight = height / levels.length;
+      
+      levels.forEach((level, index) => {
+        const barWidth = (level.count / maxCount) * maxWidth;
+        const x = (width - barWidth) / 2;
+        const y = index * levelHeight;
+        const percentage = ((level.count / total) * 100).toFixed(1);
+        
+        const gradient = ctx.createLinearGradient(x, y, x + barWidth, y);
+        gradient.addColorStop(0, level.color);
+        gradient.addColorStop(1, level.color + '80');
+        
+        ctx.fillStyle = gradient;
+        ctx.fillRect(x, y + 5, barWidth, levelHeight - 10);
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '11px Inter';
+        ctx.textAlign = 'right';
+        ctx.fillText(level.name, x - 8, y + levelHeight / 2 + 4);
+        
+        ctx.textAlign = 'center';
+        ctx.fillText(`${level.count} (${percentage}%)`, x + barWidth / 2, y + levelHeight / 2 + 4);
+      });
+    }
+
+    function showBUDetails(buName, data, health) {
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.8); z-index: 2000;
+        display: flex; align-items: center; justify-content: center;
+        backdrop-filter: blur(8px);
+      `;
+      
+      const content = document.createElement('div');
+      content.style.cssText = `
+        background: var(--bg-secondary); border: 1px solid var(--border);
+        border-radius: var(--radius-lg); padding: 32px; max-width: 600px;
+        width: 90vw; max-height: 80vh; overflow-y: auto;
+        box-shadow: var(--shadow-lg);
+      `;
+      
+      const headcount = data.headcount_by_grade;
+      const total = Object.values(headcount).reduce((sum, count) => sum + count, 0);
+      
+      content.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+          <h2 style="margin: 0; font-size: 24px; color: var(--text-primary);">${buName}</h2>
+          <button onclick="this.closest('[style*=fixed]').remove()" style="background: none; border: none; color: var(--text-muted); font-size: 24px; cursor: pointer;">&times;</button>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+          <div>
+            <h3 style="color: var(--text-primary); margin: 0 0 12px;">Effectifs par grade</h3>
+            <div style="background: var(--bg-primary); padding: 16px; border-radius: var(--radius);">
+              <canvas id="modal-pyramid" width="200" height="160"></canvas>
+            </div>
+            <div style="margin-top: 12px; font-size: 12px; color: var(--text-muted);">
+              Total: ${total} consultants
+            </div>
+          </div>
+          
+          <div>
+            <h3 style="color: var(--text-primary); margin: 0 0 12px;">Métriques clés</h3>
+            <div style="display: grid; gap: 12px;">
+              <div style="background: var(--surface); padding: 12px; border-radius: var(--radius); border: 1px solid var(--border);">
+                <div style="font-size: 20px; font-weight: 600; color: var(--text-primary);">${data.utilization_pct}%</div>
+                <div style="font-size: 12px; color: var(--text-muted);">Utilisation</div>
+              </div>
+              <div style="background: var(--surface); padding: 12px; border-radius: var(--radius); border: 1px solid var(--border);">
+                <div style="font-size: 20px; font-weight: 600; color: var(--text-primary);">${data.bench_pct}%</div>
+                <div style="font-size: 12px; color: var(--text-muted);">Bench</div>
+              </div>
+              <div style="background: var(--surface); padding: 12px; border-radius: var(--radius); border: 1px solid var(--border);">
+                <div style="font-size: 20px; font-weight: 600; color: var(--text-primary);">${data.avg_absence_days_ytd}</div>
+                <div style="font-size: 12px; color: var(--text-muted);">Jours d'absence (YTD)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        ${health.warnings.length > 0 ? `
+          <div style="background: rgba(251, 188, 4, 0.1); border: 1px solid rgba(251, 188, 4, 0.3); border-radius: var(--radius); padding: 16px; margin-bottom: 24px;">
+            <h4 style="color: #ffd166; margin: 0 0 8px;">Alertes détectées</h4>
+            ${health.warnings.map(warning => `<div style="color: #ffd166; font-size: 13px; margin-bottom: 4px;">${warning}</div>`).join('')}
+          </div>
+        ` : ''}
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+          <div>
+            <h4 style="color: var(--text-primary); margin: 0 0 12px;">TJM médians</h4>
+            <div style="background: var(--surface); padding: 16px; border-radius: var(--radius); border: 1px solid var(--border);">
+              ${Object.entries(data.tjm_median_by_role).map(([role, tjm]) => `
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                  <span style="color: var(--text-secondary); font-size: 13px;">${role}</span>
+                  <span style="color: var(--text-primary); font-weight: 500;">${tjm}€</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          
+          <div>
+            <h4 style="color: var(--text-primary); margin: 0 0 12px;">Salaires moyens</h4>
+            <div style="background: var(--surface); padding: 16px; border-radius: var(--radius); border: 1px solid var(--border);">
+              ${Object.entries(data.salary_avg_by_grade).map(([grade, salary]) => `
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                  <span style="color: var(--text-secondary); font-size: 13px;">${grade}</span>
+                  <span style="color: var(--text-primary); font-weight: 500;">${salary.toLocaleString()}€</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+        
+        ${data.alerts.skills_gap.length > 0 ? `
+          <div style="margin-top: 24px;">
+            <h4 style="color: var(--text-primary); margin: 0 0 12px;">Compétences manquantes</h4>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+              ${data.alerts.skills_gap.map(skill => `
+                <span style="background: rgba(234, 67, 53, 0.2); color: #ef476f; padding: 4px 8px; border-radius: 12px; font-size: 12px; border: 1px solid rgba(234, 67, 53, 0.3);">
+                  ${skill}
+                </span>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+        
+        ${data.open_offers.length > 0 ? `
+          <div style="margin-top: 24px;">
+            <h4 style="color: var(--text-primary); margin: 0 0 12px;">Offres ouvertes</h4>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+              ${data.open_offers.map(offer => `
+                <span style="background: rgba(26, 115, 232, 0.2); color: var(--primary-light); padding: 4px 8px; border-radius: 12px; font-size: 12px; border: 1px solid rgba(26, 115, 232, 0.3);">
+                  ${offer}
+                </span>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+      `;
+      
+      modal.appendChild(content);
+      document.body.appendChild(modal);
+      
+      setTimeout(() => drawPyramidChart('modal-pyramid', headcount), 100);
+      
+      modal.onclick = (e) => {
+        if (e.target === modal) modal.remove();
+      };
+    }
+
+    window.openBUHealth = function() {
+      const output = document.getElementById('out');
+      output.innerHTML = `
+        <div style="text-align: center; padding: 20px;">
+          <h3 style="color: var(--text-primary); margin: 0 0 16px;">Analyse de santé des Business Units</h3>
+          <p style="color: var(--text-secondary); margin-bottom: 20px;">Cliquez sur une BU ci-dessus pour voir le détail de sa santé organisationnelle</p>
+          
+          <div style="background: var(--surface); padding: 20px; border-radius: var(--radius); margin: 20px 0; text-align: left;">
+            <h4 style="color: var(--text-primary); margin: 0 0 12px;">Indicateurs de santé</h4>
+            <div style="display: grid; gap: 8px; font-size: 13px;">
+              <div style="color: var(--text-secondary);">🟢 <strong>Bonne santé:</strong> Structure équilibrée, bonne utilisation, faible bench</div>
+              <div style="color: var(--warning);">🟡 <strong>Attention:</strong> Déséquilibres détectés, surveillance recommandée</div>
+              <div style="color: var(--accent);">🔴 <strong>Critique:</strong> Problèmes structurels majeurs, action immédiate requise</div>
+            </div>
+          </div>
+          
+          <div style="background: var(--surface); padding: 20px; border-radius: var(--radius); text-align: left;">
+            <h4 style="color: var(--text-primary); margin: 0 0 12px;">Résumé global</h4>
+            ${Object.entries(businessUnitsData).map(([buName, data]) => {
+              const health = calculateBUHealth(data);
+              const total = Object.values(data.headcount_by_grade).reduce((sum, count) => sum + count, 0);
+              const statusEmoji = health.status === 'good' ? '🟢' : health.status === 'warning' ? '🟡' : '🔴';
+              return `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border);">
+                  <span style="color: var(--text-primary);"><strong>${buName}</strong> (${total} consultants)</span>
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 12px; color: var(--text-muted);">${data.utilization_pct}% util.</span>
+                    <span>${statusEmoji}</span>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+      output.classList.add('has-content');
+    }
+
+    // Main send function
+    window.send = async function(textareaId) {
       const ta = document.getElementById(textareaId);
       const st = document.getElementById("st-" + textareaId.split("-")[1]);
       const out = document.getElementById("out");
       const payload = { input: ta.value.trim() };
-      if(!payload.input){ ta.focus(); return; }
-      st.textContent = "Envoi…";
-      out.textContent = "⏳ Traitement en cours…";
-      out.classList.add("muted");
-      try{
+      
+      if (!payload.input) {
+        ta.focus();
+        return;
+      }
+      
+      st.innerHTML = '<span class="loading">Envoi</span>';
+      out.innerHTML = '<span class="loading">Traitement en cours</span>';
+      out.classList.remove('has-content');
+      
+      try {
         const res = await fetch("/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
+        
         const data = await res.json();
-        out.textContent = data.text || "(réponse vide)";
-        out.classList.remove("muted");
-        st.textContent = "OK";
-        setTimeout(()=> st.textContent="", 1200);
-      }catch(e){
-        out.textContent = "Erreur: " + e;
-        out.classList.remove("muted");
-        st.textContent = "Erreur";
+        const responseText = data.text || "(réponse vide)";
+        
+        out.textContent = responseText;
+        out.classList.add('has-content');
+        st.textContent = "✓ Envoyé";
+        
+        addToHistory(payload.input, responseText);
+        
+        setTimeout(() => st.textContent = "", 2000);
+        
+      } catch (e) {
+        out.textContent = "Erreur: " + e.message;
+        out.classList.add('has-content');
+        st.textContent = "❌ Erreur";
       }
     }
-  </script>
+
+    window.preset = function(kind) {
+      const examples = {
+        offer: "J'ai une mission Data Engineer à Lyon qui commence en octobre, qui est dispo ?",
+        consultant: "J'ai un consultant senior Python/Cloud basé à Paris, quelles missions sont dispo ?",
+        free: "Explique-moi le principe de l'indexation vectorielle en 3 phrases."
+      };
+      const ids = { offer: "ta-offer", consultant: "ta-consultant", free: "ta-free" };
+      
+      document.getElementById(ids[kind]).value = examples[kind];
+      document.getElementById(ids[kind]).focus();
+    }
+
+    setTimeout(() => {
+      Object.entries(businessUnitsData).forEach(([buName, data]) => {
+        const canvasId = `pyramid-${buName.replace(/\s+/g, '')}`;
+        drawPyramidChart(canvasId, data.headcount_by_grade);
+      });
+    }, 500);
+</script>
 </body>
 </html>
 """
