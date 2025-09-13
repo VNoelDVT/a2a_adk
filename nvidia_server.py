@@ -1,5 +1,5 @@
 # server_nvidia.py
-import os, json, inspect, re
+import os, json, inspect, re, random
 import unicodedata
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -43,6 +43,14 @@ CONSULTANT_GEO_KM   = int(os.getenv("CONSULTANT_GEO_KM", str(GEO_DEFAULT_KM)))
 MUST_COVERAGE       = float(os.getenv("MUST_COVERAGE", "0.6"))
 WEIGHT_GEO          = float(os.getenv("WEIGHT_GEO", "1.2"))
 WEIGHT_TJM          = float(os.getenv("WEIGHT_TJM", "0.8"))
+
+# Market rates data for attrition analysis
+market_rates = {
+    "junior": 400,
+    "senior": 600,
+    "principal": 800,
+    "manager": 900
+}
 
 SYSTEM = (
     "Tu es l'orchestrateur. Suis strictement le pipeline d'outils. "
@@ -516,6 +524,119 @@ def _load_bu_dataset() -> Dict[str, Dict[str, Any]]:
                 continue
     return {}
 
+# --------------------- consultants dataset loader ---------------------
+def _load_consultants_dataset() -> List[Dict[str, Any]]:
+    """Load consultant data from file or generate sample data"""
+    candidates = [
+        os.path.join(APP_ROOT, "data", "consultants.json"),
+        "data/consultants.json"
+    ]
+    
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.loads(f.read())
+            except Exception:
+                continue
+    
+    # If no file found, generate sample data based on BU data
+    bu_data = _load_bu_dataset()
+    sample_consultants = []
+    
+    for bu_name, bu_info in bu_data.items():
+        headcount = bu_info.get("headcount_by_grade", {})
+        
+        consultant_id = 1
+        for grade, count in headcount.items():
+            for i in range(count):
+                consultant = {
+                    "consultant_id": f"{bu_name.replace(' ', '')}_C{consultant_id:03d}",
+                    "full_name_masked": f"{grade} Consultant {i+1}",
+                    "bu": bu_name,
+                    "grade": grade,
+                    "location": random.choice(["Paris", "Lyon", "Massy", "Grenoble"]),
+                    "bench_weeks": random.randint(0, 12),
+                    "months_since_promotion": random.randint(6, 48),
+                    "performance_rating": round(random.uniform(3.0, 5.0), 1),
+                    "OCR_fields": {
+                        "tjm_min": random.randint(300, 800),
+                        "min_rate": random.randint(300, 800),
+                        "skill_levels": {
+                            "Python": random.choice(["beginner", "intermediate", "expert"]),
+                            "React": random.choice(["beginner", "intermediate", "expert"]),
+                            "AWS": random.choice(["beginner", "intermediate", "expert"]),
+                            "Docker": random.choice(["beginner", "intermediate", "expert"])
+                        }
+                    }
+                }
+                sample_consultants.append(consultant)
+                consultant_id += 1
+    
+    return sample_consultants
+
+def calculate_attrition_risk(consultant):
+    """Calculate individual attrition risk score"""
+    risk_factors = []
+    risk_score = 0
+    
+    # Extract enhanced data
+    grade = consultant.get("grade", "").lower()
+    ocr = consultant.get("OCR_fields", {})
+    
+    # Pay vs market rate analysis
+    min_rate = ocr.get("tjm_min", ocr.get("min_rate", ocr.get("tjm_floor", 0)))
+    market_rate = market_rates.get(grade, 500)
+    
+    if min_rate < market_rate * 0.9:  # 10% below market
+        risk_factors.append("Below market rate")
+        risk_score += 25
+    
+    # Bench time analysis
+    bench_weeks = consultant.get("bench_weeks", random.randint(0, 8))
+    if bench_weeks > 4:
+        risk_factors.append(f"Extended bench ({bench_weeks} weeks)")
+        risk_score += 20
+    
+    # Time since promotion
+    months_since_promotion = consultant.get("months_since_promotion", random.randint(6, 36))
+    if months_since_promotion > 24:
+        risk_factors.append("No recent promotion")
+        risk_score += 15
+    
+    # Skills obsolescence
+    skill_levels = ocr.get("skill_levels", {})
+    outdated_skills = sum(1 for level in skill_levels.values() if level == "beginner")
+    if outdated_skills > 2:
+        risk_factors.append("Skills need updating")
+        risk_score += 10
+    
+    # Performance issues
+    performance = consultant.get("performance_rating", 4.0)
+    if performance < 3.5:
+        risk_factors.append("Performance concerns")
+        risk_score += 20
+    
+    # Determine risk level
+    if risk_score >= 50:
+        risk_level = "High"
+    elif risk_score >= 30:
+        risk_level = "Medium"
+    else:
+        risk_level = "Low"
+    
+    return {
+        **consultant,
+        "attrition_risk": {
+            "level": risk_level,
+            "score": risk_score,
+            "factors": risk_factors
+        },
+        "bench_weeks": bench_weeks,
+        "months_since_promotion": months_since_promotion,
+        "market_rate_delta": min_rate - market_rate
+    }
+
 def _slugify_bu(s: str) -> str:
     if not isinstance(s, str): return ""
     t = _strip_accents(s).lower()
@@ -828,6 +949,7 @@ def chat(body: ChatIn):
         return ChatOut(text=text)
     except Exception as e:
         return ChatOut(text=f"(Erreur orchestrateur: {type(e).__name__}: {e})")
+    
 
 @app.get("/bu-data")
 def get_bu_data():
@@ -835,37 +957,37 @@ def get_bu_data():
     print("[BU-DATA] GET /bu-data endpoint called")
     
     try:
-        # Debug: Show what paths we're checking
-        candidates = []
-        if BU_DATA_PATH:
-            candidates.append(BU_DATA_PATH)
-            print(f"[BU-DATA] Checking BU_DATA_PATH: {BU_DATA_PATH}")
-        
-        default_paths = [
-            os.path.join(APP_ROOT, "data", "business_units.json"),
-            os.path.join(APP_ROOT, "data", "business_units"),
-            os.path.join(APP_ROOT, "data", "business_units.jsonl"),
-            "data/business_units.json",
-            "data/business_units",
-            "data/business_units.jsonl",
-        ]
-        candidates.extend(default_paths)
-        
-        print(f"[BU-DATA] APP_ROOT is: {APP_ROOT}")
-        print(f"[BU-DATA] Current working directory: {os.getcwd()}")
-        print(f"[BU-DATA] Will check these paths in order:")
-        for i, path in enumerate(candidates, 1):
-            exists = os.path.exists(path)
-            print(f"[BU-DATA]   {i}. {path} - {'EXISTS' if exists else 'NOT FOUND'}")
-        
         dataset = _load_bu_dataset()
         if not dataset:
             print("[BU-DATA] _load_bu_dataset returned empty - using fallback data")
-            # Return your hardcoded fallback data here
             return {
                 "Creative Tech": {
                     "headcount_by_grade": { "Junior": 35, "Senior": 55, "Principal": 12, "Manager": 8 },
-                    # ... rest of your data
+                    "tjm_median_by_role": { "Developer": 550, "Architect": 750, "Manager": 900 },
+                    "salary_avg_by_grade": { "Junior": 45000, "Senior": 65000, "Principal": 85000, "Manager": 95000 },
+                    "utilization_pct": 78,
+                    "bench_pct": 12,
+                    "avg_absence_days_ytd": 8,
+                    "alerts": {
+                        "attrition_risk": "Medium",
+                        "skills_gap": ["React", "Node.js"],
+                        "budget_variance": -5
+                    },
+                    "open_offers": ["Frontend React", "Backend Node.js"]
+                },
+                "Data & AI": {
+                    "headcount_by_grade": { "Junior": 28, "Senior": 42, "Principal": 15, "Manager": 5 },
+                    "tjm_median_by_role": { "Data Scientist": 650, "ML Engineer": 700, "Manager": 950 },
+                    "salary_avg_by_grade": { "Junior": 48000, "Senior": 68000, "Principal": 88000, "Manager": 98000 },
+                    "utilization_pct": 85,
+                    "bench_pct": 8,
+                    "avg_absence_days_ytd": 6,
+                    "alerts": {
+                        "attrition_risk": "Low",
+                        "skills_gap": ["MLOps", "Kubernetes"],
+                        "budget_variance": 3
+                    },
+                    "open_offers": ["MLOps Engineer", "Data Analyst"]
                 }
             }
         
@@ -876,6 +998,23 @@ def get_bu_data():
         error_msg = f"Could not load BU data: {type(e).__name__}: {e}"
         print(f"[BU-DATA] ERROR: {error_msg}")
         return {"error": error_msg}
+    
+@app.get("/consultants-data")
+def get_consultants_data():
+    """Return consultant data with enhanced attrition risk factors"""
+    try:
+        # Load base consultant data
+        dataset = _load_consultants_dataset()
+        
+        # Enrich with attrition risk factors
+        enriched_data = []
+        for consultant in dataset:
+            enriched = calculate_attrition_risk(consultant)
+            enriched_data.append(enriched)
+        
+        return enriched_data
+    except Exception as e:
+        return {"error": f"Could not load consultant data: {e}"}
 
 # -------------------------- Enhanced UI with Gemini-inspired Design --------------------------
 _UI_HTML = """
@@ -1014,74 +1153,6 @@ _UI_HTML = """
       font-size: 10px;
       color: var(--text-muted);
       margin-top: 8px;
-    }
-
-    /* Sidebar footer */
-    .sidebar-footer {
-      position: sticky;
-      bottom: 0;
-      background: linear-gradient(180deg, transparent 0%, var(--bg-tertiary) 30%);
-      padding: 20px 16px;
-      border-top: 1px solid var(--border);
-      margin-top: auto;
-    }
-
-    .powered-by {
-      text-align: center;
-    }
-
-    .powered-by-text {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-bottom: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .logos-container {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-    }
-
-    .logo-item {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 8px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      transition: all 0.2s ease;
-    }
-
-    .logo-item:hover {
-      background: var(--surface-hover);
-      border-color: var(--border-hover);
-      transform: translateY(-1px);
-    }
-
-    .nvidia-logo {
-      width: 32px;
-      height: 10px;
-    }
-
-    .llama-logo {
-      width: 16px;
-      height: 16px;
-    }
-
-    .logo-text {
-      font-size: 10px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .logo-separator {
-      font-size: 10px;
-      color: var(--text-muted);
-      opacity: 0.5;
     }
 
     /* Main content */
@@ -1556,6 +1627,12 @@ _UI_HTML = """
         </div>
       </div>
 
+      <!-- Response Section -->
+      <div class="response-section">
+        <h2 class="section-title">Réponse</h2>
+        <div id="out" class="response-content">La réponse apparaîtra ici…</div>
+      </div>
+
       <!-- BU Health Section -->
       <div class="bu-health-section">
         <h2 class="section-title">BU Health Dashboard</h2>
@@ -1581,11 +1658,6 @@ _UI_HTML = """
         </div>
       </div>
 
-      <!-- Response Section -->
-      <div class="response-section">
-        <h2 class="section-title">Réponse</h2>
-        <div id="out" class="response-content">La réponse apparaîtra ici…</div>
-      </div>
     </div>
   </div>
 
@@ -1700,22 +1772,22 @@ _UI_HTML = """
 
     // BU Health functions
     function createBUCards() {
-  const container = document.getElementById('buGrid');
-  
-  Object.entries(businessUnitsData).forEach(([buName, data]) => {
-    const health = calculateBUHealth(data);
-    const card = createBUCard(buName, data, health);
-    container.appendChild(card);
-  });
+      const container = document.getElementById('buGrid');
+      
+      Object.entries(businessUnitsData).forEach(([buName, data]) => {
+        const health = calculateBUHealth(data);
+        const card = createBUCard(buName, data, health);
+        container.appendChild(card);
+      });
 
-  // Draw pyramid charts after cards are created
-  setTimeout(() => {
-    Object.entries(businessUnitsData).forEach(([buName, data]) => {
-      const canvasId = `pyramid-${buName.replace(/\s+/g, '')}`;
-      drawPyramidChart(canvasId, data.headcount_by_grade);
-    });
-  }, 100);
-}
+      // Draw pyramid charts after cards are created
+      setTimeout(() => {
+        Object.entries(businessUnitsData).forEach(([buName, data]) => {
+          const canvasId = `pyramid-${buName.replace(/\s+/g, '')}`;
+          drawPyramidChart(canvasId, data.headcount_by_grade);
+        });
+      }, 100);
+    }
 
     function calculateBUHealth(data) {
       const headcount = data.headcount_by_grade;
@@ -1800,10 +1872,10 @@ _UI_HTML = """
       ctx.clearRect(0, 0, width, height);
       
       const levels = [
-        { name: 'Manager', count: data.Manager, color: '#9334e4' },
-        { name: 'Principal', count: data.Principal, color: '#1a73e8' },
-        { name: 'Senior', count: data.Senior, color: '#34a853' },
-        { name: 'Junior', count: data.Junior, color: '#fbbc04' }
+        { name: 'Mgr', count: data.Manager, color: '#9334e4' },
+        { name: 'Prin', count: data.Principal, color: '#1a73e8' },
+        { name: 'Sr', count: data.Senior, color: '#34a853' },
+        { name: 'Jr', count: data.Junior, color: '#fbbc04' }
       ];
       
       const total = Object.values(data).reduce((sum, count) => sum + count, 0);
@@ -1827,14 +1899,14 @@ _UI_HTML = """
         ctx.fillStyle = '#ffffff';
         ctx.font = '11px Inter';
         ctx.textAlign = 'right';
-        ctx.fillText(level.name, x - 8, y + levelHeight / 2 + 4);
+        ctx.fillText(level.name, x - 15, y + levelHeight / 2 + 4);
         
         ctx.textAlign = 'center';
         ctx.fillText(`${level.count} (${percentage}%)`, x + barWidth / 2, y + levelHeight / 2 + 4);
       });
     }
 
-    function showBUDetails(buName, data, health) {
+    async function showBUDetails(buName, data, health) {
       const modal = document.createElement('div');
       modal.style.cssText = `
         position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -1846,13 +1918,16 @@ _UI_HTML = """
       const content = document.createElement('div');
       content.style.cssText = `
         background: var(--bg-secondary); border: 1px solid var(--border);
-        border-radius: var(--radius-lg); padding: 32px; max-width: 600px;
+        border-radius: var(--radius-lg); padding: 32px; max-width: 700px;
         width: 90vw; max-height: 80vh; overflow-y: auto;
         box-shadow: var(--shadow-lg);
       `;
       
       const headcount = data.headcount_by_grade;
       const total = Object.values(headcount).reduce((sum, count) => sum + count, 0);
+      
+      // Get attrition analysis
+      const attritionHTML = await getAttritionAnalysis(buName);
       
       content.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
@@ -1889,6 +1964,8 @@ _UI_HTML = """
             </div>
           </div>
         </div>
+
+        ${attritionHTML}
         
         ${health.warnings.length > 0 ? `
           <div style="background: rgba(251, 188, 4, 0.1); border: 1px solid rgba(251, 188, 4, 0.3); border-radius: var(--radius); padding: 16px; margin-bottom: 24px;">
@@ -1958,6 +2035,255 @@ _UI_HTML = """
       modal.onclick = (e) => {
         if (e.target === modal) modal.remove();
       };
+    }
+
+    async function getAttritionAnalysis(buName) {
+      console.log(`[ATTRITION] Starting analysis for BU: ${buName}`);
+      
+      try {
+        console.log('[ATTRITION] Fetching consultant data...');
+        const response = await fetch('/consultants-data');
+        
+        if (!response.ok) {
+          console.error(`[ATTRITION] HTTP error: ${response.status} ${response.statusText}`);
+          return `<div style="color: red;">Error: Could not fetch consultant data (HTTP ${response.status})</div>`;
+        }
+        
+        const consultants = await response.json();
+        console.log('[ATTRITION] Raw consultant data:', consultants);
+        
+        if (consultants.error) {
+          console.error('[ATTRITION] API returned error:', consultants.error);
+          return `<div style="color: red;">Error: ${consultants.error}</div>`;
+        }
+        
+        if (!Array.isArray(consultants)) {
+          console.error('[ATTRITION] Expected array, got:', typeof consultants);
+          return `<div style="color: orange;">Warning: Unexpected data format</div>`;
+        }
+        
+        console.log(`[ATTRITION] Found ${consultants.length} total consultants`);
+        
+        const buConsultants = consultants.filter(c => c && c.bu === buName);
+        console.log(`[ATTRITION] Found ${buConsultants.length} consultants for BU: ${buName}`);
+        console.log('[ATTRITION] BU consultants:', buConsultants);
+        
+        if (buConsultants.length === 0) {
+          return `
+            <div style="margin-bottom: 24px;">
+              <h4 style="color: var(--warning); margin: 0 0 12px;">⚠️ Données manquantes</h4>
+              <div style="background: rgba(251, 188, 4, 0.1); border: 1px solid rgba(251, 188, 4, 0.3); border-radius: var(--radius); padding: 16px;">
+                <p style="color: var(--text-secondary); margin: 0; font-size: 14px;">
+                  Aucune donnée de consultant trouvée pour la BU "${buName}".
+                </p>
+                <p style="color: var(--text-muted); margin: 8px 0 0; font-size: 12px;">
+                  Total consultants dans la base: ${consultants.length}
+                </p>
+              </div>
+            </div>
+          `;
+        }
+        
+        const highRisk = buConsultants
+          .filter(c => c.attrition_risk && c.attrition_risk.level === 'High')
+          .sort((a, b) => (b.attrition_risk?.score || 0) - (a.attrition_risk?.score || 0));
+        
+        const mediumRisk = buConsultants
+          .filter(c => c.attrition_risk && c.attrition_risk.level === 'Medium')
+          .length;
+        
+        console.log(`[ATTRITION] High risk: ${highRisk.length}, Medium risk: ${mediumRisk}`);
+        
+        if (highRisk.length === 0 && mediumRisk === 0) {
+          return `
+            <div style="margin-bottom: 24px;">
+              <h4 style="color: var(--secondary); margin: 0 0 12px; display: flex; align-items: center; gap: 8px;">
+                <span style="color: var(--secondary);">✅</span> Analyse d'attrition
+              </h4>
+              <div style="background: rgba(52, 168, 83, 0.1); border: 1px solid rgba(52, 168, 83, 0.3); border-radius: var(--radius); padding: 16px;">
+                <p style="color: var(--text-secondary); margin: 0; font-size: 14px;">
+                  Aucun consultant à risque élevé d'attrition détecté dans cette BU.
+                </p>
+                <p style="color: var(--text-muted); margin: 8px 0 0; font-size: 12px;">
+                  Analysé: ${buConsultants.length} consultants
+                </p>
+              </div>
+            </div>
+          `;
+        }
+        
+        const attritionHTML = `
+          <div style="margin-bottom: 24px;">
+            <h4 style="color: var(--accent); margin: 0 0 12px; display: flex; align-items: center; gap: 8px;">
+              <span style="color: var(--accent);">⚠️</span> Analyse d'attrition
+            </h4>
+            <div style="background: rgba(234, 67, 53, 0.1); border: 1px solid rgba(234, 67, 53, 0.3); border-radius: var(--radius); padding: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span style="font-weight: 600; color: #ef476f;">
+                  ${highRisk.length} consultant(s) à risque élevé
+                </span>
+                ${mediumRisk > 0 ? `
+                  <span style="font-size: 12px; color: var(--warning);">
+                    +${mediumRisk} à risque modéré
+                  </span>
+                ` : ''}
+              </div>
+              
+              ${highRisk.slice(0, 3).map(consultant => `
+                <div style="background: rgba(0,0,0,0.3); padding: 12px; margin-bottom: 8px; border-radius: 8px; border-left: 3px solid #ef476f;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="color: var(--text-primary); font-weight: 500; font-size: 14px;">
+                      ${consultant.full_name_masked || consultant.name || 'Consultant'}
+                    </span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="background: rgba(239, 71, 111, 0.2); color: #ef476f; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 500;">
+                        ${consultant.grade || 'N/A'}
+                      </span>
+                      <span style="color: #ef476f; font-size: 12px; font-weight: 600;">
+                        ${consultant.attrition_risk?.score || 0}/100
+                      </span>
+                    </div>
+                  </div>
+                  <div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
+                    ${(consultant.attrition_risk?.factors || []).slice(0, 2).join(' • ')}
+                    ${(consultant.attrition_risk?.factors || []).length > 2 ? ` (+${consultant.attrition_risk.factors.length - 2} autres)` : ''}
+                  </div>
+                </div>
+              `).join('')}
+              
+              ${highRisk.length > 3 ? `
+                <div style="text-align: center; padding-top: 8px; border-top: 1px solid rgba(239, 71, 111, 0.2);">
+                  <span style="font-size: 12px; color: var(--text-muted);">
+                    +${highRisk.length - 3} autres consultant(s) à risque élevé
+                  </span>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+
+        console.log('[ATTRITION] Generated attrition HTML, now getting recommendations...');
+        
+        // Generate recommendations
+        const recommendations = generateRetentionRecommendations(buConsultants);
+        console.log('[ATTRITION] Recommendations:', recommendations);
+
+        // Combine attrition analysis with recommendations
+        if (recommendations.length > 0) {
+          return attritionHTML + `
+            <div style="margin-bottom: 24px;">
+              <h4 style="color: var(--primary); margin: 0 0 12px;">💡 Actions recommandées</h4>
+              <div style="display: grid; gap: 12px;">
+                ${recommendations.map(rec => `
+                  <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; border-left: 4px solid ${rec.priority === 'high' ? 'var(--accent)' : 'var(--warning)'};">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                      <span style="font-size: 16px;">${rec.icon}</span>
+                      <span style="color: var(--text-primary); font-weight: 600; font-size: 14px;">${rec.title}</span>
+                    </div>
+                    <div style="color: var(--text-secondary); font-size: 13px; margin-bottom: 6px;">
+                      ${rec.description}
+                    </div>
+                    <div style="color: var(--primary); font-size: 12px; font-weight: 500;">
+                      → ${rec.action}
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }
+
+        return attritionHTML;
+        
+      } catch (error) {
+        console.error('[ATTRITION] Error in getAttritionAnalysis:', error);
+        return `
+          <div style="margin-bottom: 24px;">
+            <h4 style="color: var(--accent); margin: 0 0 12px;">❌ Erreur d'analyse</h4>
+            <div style="background: rgba(234, 67, 53, 0.1); border: 1px solid rgba(234, 67, 53, 0.3); border-radius: var(--radius); padding: 16px;">
+              <p style="color: var(--text-secondary); margin: 0; font-size: 14px;">
+                Impossible de charger l'analyse d'attrition: ${error.message}
+              </p>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    function generateRetentionRecommendations(consultants) {
+      const recommendations = [];
+      
+      // Validate consultants array
+      if (!Array.isArray(consultants) || consultants.length === 0) {
+        return recommendations;
+      }
+      
+      // Salary adjustment recommendations
+      const underpaid = consultants.filter(c => 
+        c && c.market_rate_delta && typeof c.market_rate_delta === 'number' && c.market_rate_delta < -50
+      );
+      if (underpaid.length > 0) {
+        recommendations.push({
+          type: 'salary',
+          priority: 'high',
+          icon: '💰',
+          title: 'Ajustements salariaux recommandés',
+          description: `${underpaid.length} consultant(s) en dessous du marché`,
+          action: 'Révision salariale nécessaire'
+        });
+      }
+      
+      // Training recommendations
+      const skillGaps = consultants.filter(c => {
+        if (!c || !c.OCR_fields || !c.OCR_fields.skill_levels) return false;
+        const skillLevels = c.OCR_fields.skill_levels;
+        return Object.values(skillLevels).filter(level => level === 'beginner').length > 1;
+      });
+      if (skillGaps.length > 0) {
+        recommendations.push({
+          type: 'training',
+          priority: 'medium',
+          icon: '📚',
+          title: 'Formations prioritaires',
+          description: `${skillGaps.length} consultant(s) ont besoin de montée en compétences`,
+          action: 'Planifier des formations ciblées'
+        });
+      }
+      
+      // Promotion pipeline - using available data or fallback
+      const promotionCandidates = consultants.filter(c => {
+        if (!c) return false;
+        const monthsSincePromotion = c.months_since_promotion || 0;
+        const performanceGood = c.performance_rating ? c.performance_rating > 4.0 : monthsSincePromotion > 24;
+        return monthsSincePromotion > 18 && performanceGood;
+      });
+      if (promotionCandidates.length > 0) {
+        recommendations.push({
+          type: 'promotion',
+          priority: 'high',
+          icon: '⬆️',
+          title: 'Candidats à la promotion',
+          description: `${promotionCandidates.length} consultant(s) éligible(s) à une promotion`,
+          action: 'Révision des promotions'
+        });
+      }
+      
+      // Bench time concerns
+      const longBench = consultants.filter(c => 
+        c && typeof c.bench_weeks === 'number' && c.bench_weeks > 6
+      );
+      if (longBench.length > 0) {
+        recommendations.push({
+          type: 'utilization',
+          priority: 'medium',
+          icon: '🎯',
+          title: 'Optimisation du bench',
+          description: `${longBench.length} consultant(s) sur le bench depuis plus de 6 semaines`,
+          action: 'Recherche active de missions'
+        });
+      }
+      
+      return recommendations;
     }
 
     window.openBUHealth = function() {
@@ -2039,18 +2365,7 @@ _UI_HTML = """
       }
     }
 
-    window.preset = function(kind) {
-      const examples = {
-        offer: "J'ai une mission Data Engineer à Lyon qui commence en octobre, qui est dispo ?",
-        consultant: "J'ai un consultant senior Python/Cloud basé à Paris, quelles missions sont dispo ?",
-        free: "Explique-moi le principe de l'indexation vectorielle en 3 phrases."
-      };
-      const ids = { offer: "ta-offer", consultant: "ta-consultant", free: "ta-free" };
-      
-      document.getElementById(ids[kind]).value = examples[kind];
-      document.getElementById(ids[kind]).focus();
-    }
-
+    // Load BU data on startup
     setTimeout(() => {
       Object.entries(businessUnitsData).forEach(([buName, data]) => {
         const canvasId = `pyramid-${buName.replace(/\s+/g, '')}`;

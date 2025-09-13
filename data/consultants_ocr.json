@@ -3,36 +3,57 @@
     "consultant_id": "C-042",
     "full_name_masked": "Consultant-042",
     "grade": "Senior",
-    "OCR_fields": { "competnces": ["Py", "AWS", "AirFlow"], "lang": ["FR","EN"], "loc": "Paris", "tjm_min": 680, "avail": {"from":"2025-09-15","load":"80%"}, "yrs_exp": 8 }
+    "bu": "Data & AI",
+    "hire_date": "2022-03-15",
+    "last_promotion": "2023-08-01",
+    "OCR_fields": {
+      "skills": ["Python", "AWS", "AirFlow", "Spark", "Docker"],
+      "skill_levels": {
+        "Python": "expert",
+        "AWS": "advanced", 
+        "AirFlow": "intermediate",
+        "Spark": "advanced",
+        "Docker": "intermediate"
+      },
+      "certifications": ["AWS Solutions Architect", "Databricks Certified"],
+      "languages": ["FR", "EN"],
+      "location": "Paris",
+      "tjm_min": 680,
+      "availability": {"from": "2025-09-15", "load": "80%"},
+      "experience_years": 8
+    },
+    "performance_rating": 4.2,
+    "client_satisfaction": 4.5,
+    "bench_weeks": 2,
+    "months_since_promotion": 14
   },
   {
     "consultant_id": "C-017",
-    "full_name_masked": "Consultant-017",
+    "full_name_masked": "Consultant-017", 
     "grade": "Senior",
-    "OCR_fields": { "skills": ["GCP","Terraform","Kubernetes","GKE"], "languages": ["FR"], "city": "Paris", "min_rate": 720, "availability": {"from":"2025-10-01","load":"100%"}, "exp_years": 10 }
-  },
-  {
-    "consultant_id": "C-073",
-    "full_name_masked": "Consultant-073",
-    "grade": "Mid",
-    "OCR_fields": { "stack": ["Python","Azure","Databricks","CI/CD"], "langues": ["FR"], "base": "Massy", "tjm_floor": 600, "free_from": "2025-09-29", "load_pct": 60 }
-  },
-  {
-    "consultant_id": "C-128",
-    "full_name_masked": "Consultant-128",
-    "grade": "Senior",
-    "OCR_fields": { "skills": ["SQL","PowerBI","Python"], "languages": ["FR","EN"], "city": "Paris", "min_rate": 540, "availability": {"from":"2025-10-05","load":"80%"}, "exp_years": 7 }
-  },
-  {
-    "consultant_id": "C-221",
-    "full_name_masked": "Consultant-221",
-    "grade": "Senior",
-    "OCR_fields": { "skills": ["Kubernetes","Security","Ansible"], "languages": ["FR"], "city": "Brest", "min_rate": 760, "availability": {"from":"2025-09-22","load":"100%"}, "exp_years": 9 }
-  },
-  {
-    "consultant_id": "C-302",
-    "full_name_masked": "Consultant-302",
-    "grade": "Principal",
-    "OCR_fields": { "skills": ["Data Architecture","HPC","Spark"], "languages": ["EN"], "city": "Grenoble", "min_rate": 920, "availability": {"from":"2025-10-13","load":"100%"}, "exp_years": 12 }
+    "bu": "Cybersecurity",
+    "hire_date": "2021-11-20",
+    "last_promotion": "2022-05-15",
+    "OCR_fields": {
+      "skills": ["GCP", "Terraform", "Kubernetes", "GKE", "Security", "Python"],
+      "skill_levels": {
+        "GCP": "expert",
+        "Terraform": "advanced",
+        "Kubernetes": "expert", 
+        "GKE": "advanced",
+        "Security": "expert",
+        "Python": "intermediate"
+      },
+      "certifications": ["GCP Professional Cloud Architect", "CKA"],
+      "languages": ["FR"],
+      "location": "Paris",
+      "min_rate": 720,
+      "availability": {"from": "2025-10-01", "load": "100%"},
+      "experience_years": 10
+    },
+    "performance_rating": 4.7,
+    "client_satisfaction": 4.3,
+    "bench_weeks": 6,
+    "months_since_promotion": 31
   }
 ]
