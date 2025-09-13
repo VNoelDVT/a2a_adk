@@ -1,5 +1,5 @@
 {
-  "Create Tech": {
+  "Creative Tech": {
     "headcount_by_grade": { "Junior": 35, "Senior": 55, "Principal": 12, "Manager": 8 },
     "tjm_median_by_role": { "Frontend": 650, "Fullstack": 700, "Product Designer": 700 },
     "salary_avg_by_grade": { "Junior": 40000, "Senior": 65000, "Principal": 82000, "Manager": 90000 },

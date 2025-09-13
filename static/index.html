@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Orchestrateur</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font: 16px/1.4 system-ui, sans-serif; margin: 40px; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+    button { padding:8px 12px; border-radius:8px; border:1px solid #ddd; cursor:pointer; }
+    textarea { width:100%; height:120px; padding:12px; border-radius:8px; border:1px solid #ddd; }
+    pre { background:#f7f7f8; padding:16px; border-radius:8px; overflow:auto; white-space:pre-wrap; }
+    .muted { color:#666; }
+  </style>
+</head>
+<body>
+  <h1>Orchestrateur</h1>
+
+  <div class="row">
+    <button onclick="setPrompt(`J’ai une mission Data Engineer à Lyon qui commence en octobre, qui est dispo ?`)">Mission → Candidats</button>
+    <button onclick="setPrompt(`J’ai un consultant senior Python/Cloud basé à Paris, quelles missions sont dispo ?`)">Consultant → Missions</button>
+    <button onclick="setPrompt(`Fais-moi un rapport de santé pour la BU Data & AI.`)">Rapport BU</button>
+  </div>
+
+  <textarea id="prompt" placeholder="Tapez votre requête..."></textarea>
+
+  <div class="row">
+    <button onclick="send()">Envoyer</button>
+    <span id="status" class="muted"></span>
+  </div>
+
+  <h3>Réponse</h3>
+  <pre id="out" class="muted">En attente…</pre>
+
+  <script>
+    function setPrompt(t){ document.getElementById('prompt').value = t; }
+    async function send() {
+      const input = document.getElementById('prompt').value.trim();
+      if(!input){ return; }
+      const status = document.getElementById('status');
+      const out = document.getElementById('out');
+      status.textContent = "Envoi…";
+      out.textContent = "";
+      try {
+        const res = await fetch('/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input })
+        });
+        const data = await res.json();
+        out.textContent = data.text || JSON.stringify(data, null, 2);
+        status.textContent = "OK";
+      } catch(e){
+        status.textContent = "Erreur";
+        out.textContent = String(e);
+      }
+    }
+  </script>
+</body>
+</html>
